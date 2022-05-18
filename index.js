@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const port = process.env.PORT || 5000;
+const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion } = require("mongodb");
 
@@ -17,6 +18,25 @@ const client = new MongoClient(uri, {
 });
 console.log(uri);
 
+// verify Token
+
+function verifyToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: "You are unAuthorized" });
+  }
+  const token = authHeader.split(" ")[1];
+  // console.log(authHeader);
+  // console.log(token);
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+}
+
 async function run() {
   try {
     await client.connect();
@@ -24,8 +44,27 @@ async function run() {
     const ServiceCollection = client
       .db("doctors_portal")
       .collection("services");
-
     const BookingCollection = client.db("doctors_portal").collection("booking");
+    const UserCollection = client.db("doctors_portal").collection("users");
+
+    app.put("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      const filter = { email: email };
+      const options = { upsert: true };
+
+      const updateDoc = {
+        $set: user,
+      };
+
+      const token = jwt.sign(
+        { email: email },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: "1d" }
+      );
+      const result = await UserCollection.updateOne(filter, updateDoc, options);
+      res.send({ result, token });
+    });
 
     app.get("/services", async (req, res) => {
       const query = {};
@@ -63,6 +102,7 @@ async function run() {
      * app.get('/booking') -> get all booking in the collection . or get more than one or by filter
      * app.get('/booking/:id) -> get a specific booking
      * app.post('/booking) -> add a new book
+     * app.put('/booking/:id) -> if exit then update or if doesn't exit thn crate
      * app.patch('/booking/:id)
      * add.delete('/booking/:id)
      */
@@ -82,11 +122,19 @@ async function run() {
       return res.send({ success: true, result });
     });
 
-    app.get("/booking", async (req, res) => {
+    app.get("/booking", verifyToken, async (req, res) => {
+      // const authorization = req.headers.authorization;
       const patient = req.query.patient;
-      const query = { patient: patient };
-      const bookings = await BookingCollection.find(query).toArray();
-      res.send(bookings);
+      // console.log(authorization);
+      const decodedEmail = req.decoded.email;
+
+      if (patient === decodedEmail) {
+        const query = { patient: patient };
+        const bookings = await BookingCollection.find(query).toArray();
+        return res.send(bookings);
+      } else {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
     });
   } finally {
   }
