@@ -4,7 +4,7 @@ const cors = require("cors");
 const port = process.env.PORT || 5000;
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 //middleware
 app.use(cors());
@@ -17,6 +17,9 @@ const client = new MongoClient(uri, {
   serverApi: ServerApiVersion.v1,
 });
 console.log(uri);
+
+//payment
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 // verify Token
 
@@ -60,6 +63,21 @@ async function run() {
         return res.status(403).send({ message: "Forbidden access" });
       }
     };
+
+    //payment API
+    app.post("/create-payment-intent", verifyToken, async (req, res) => {
+      const price = req.body.price;
+      const amount = price * 100;
+      // console.log(amount);
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      console.log(paymentIntent.client_secret);
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
 
     // admin Api
     app.put(
@@ -178,6 +196,13 @@ async function run() {
       } else {
         return res.status(403).send({ message: "Forbidden access" });
       }
+    });
+
+    app.get("/booking/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const booking = await BookingCollection.findOne(query);
+      res.send(booking);
     });
 
     app.post("/doctor", verifyToken, verifyAdmin, async (req, res) => {
